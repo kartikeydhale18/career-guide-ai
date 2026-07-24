@@ -191,6 +191,7 @@ function App() {
   const [historyItems, setHistoryItems] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedHistory, setExpandedHistory] = useState({});
+  const [profileData, setProfileData] = useState(null);
   
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -221,7 +222,30 @@ function App() {
       };
       fetchHistory();
     }
-  }, [currentFeature, loggedInUser]);
+    
+    if (currentFeature === 'profile' && loggedInUser && !profileData) {
+      const fetchProfile = async () => {
+        try {
+          const res = await fetch(`/api/profile/${loggedInUser}`);
+          const data = await res.json();
+          if (data.success) {
+            setProfileData(data.profile);
+          }
+        } catch(e) {
+          console.error(e);
+        }
+      };
+      fetchProfile();
+    }
+  }, [currentFeature, loggedInUser, profileData]);
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setLoggedInUser('');
+    setCurrentFeature('career_advice');
+    setHistoryItems([]);
+    setProfileData(null);
+  };
 
   const handleFeatureSwitch = (featureKey) => {
     if (currentFeature === featureKey) return;
@@ -303,7 +327,7 @@ function App() {
     }
   };
 
-  const current = currentFeature !== 'history' ? featureContent[currentFeature] : null;
+  const current = (currentFeature !== 'history' && currentFeature !== 'profile') ? featureContent[currentFeature] : null;
 
   if (!isAuthenticated) {
     return (
@@ -345,16 +369,24 @@ function App() {
             <i className="ph ph-clock-counter-clockwise"></i>
             <span className="btn-text"><ScrambleText text="Chat History" /></span>
           </RippleButton>
+          <RippleButton 
+            isActive={currentFeature === 'profile'}
+            onClick={() => handleFeatureSwitch('profile')}
+          >
+            <i className="ph ph-user-circle"></i>
+            <span className="btn-text"><ScrambleText text="My Profile" /></span>
+          </RippleButton>
         </nav>
 
         <div className="user-info">
-          <div className="avatar">
-            <i className="ph ph-user"></i>
-          </div>
+          <div className="avatar"><i className="ph ph-user"></i></div>
           <div className="details">
-            <span className="name">{loggedInUser || 'Admin User'}</span>
+            <span className="name">{loggedInUser}</span>
             <span className="status">Online</span>
           </div>
+          <button onClick={handleLogout} className="logout-btn" title="Logout">
+            <i className="ph ph-sign-out"></i>
+          </button>
         </div>
       </aside>
 
@@ -366,6 +398,11 @@ function App() {
               <h2><ScrambleText text="Your Chat History" /></h2>
               <p>Review all your past career sessions.</p>
             </div>
+          ) : currentFeature === 'profile' ? (
+            <div>
+              <h2><ScrambleText text="My Profile" /></h2>
+              <p>Manage your account details.</p>
+            </div>
           ) : (
             <div>
               <h2><ScrambleText text={current.title} /></h2>
@@ -375,7 +412,29 @@ function App() {
         </header>
 
         <div className="messages-container" id="chat-messages">
-          {currentFeature === 'history' ? (
+          {currentFeature === 'profile' ? (
+            <div className="profile-view slide-up-reveal">
+              <div className="profile-card">
+                <div className="profile-avatar-large">
+                  <i className="ph ph-user"></i>
+                </div>
+                <h2 className="profile-username">@{loggedInUser}</h2>
+                <div className="profile-details">
+                  <div className="profile-detail-item">
+                    <span className="detail-label">Account Created</span>
+                    <span className="detail-value">{profileData ? new Date(profileData.created_at).toLocaleDateString() : 'Loading...'}</span>
+                  </div>
+                  <div className="profile-detail-item">
+                    <span className="detail-label">Status</span>
+                    <span className="detail-value text-green">Active</span>
+                  </div>
+                </div>
+                <button className="logout-btn-large" onClick={handleLogout}>
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          ) : currentFeature === 'history' ? (
             <div className="history-view">
               {loadingHistory ? (
                 <div className="history-empty">Loading history...</div>
@@ -434,7 +493,7 @@ function App() {
           )}
         </div>
 
-        {currentFeature !== 'history' && (
+        {(currentFeature !== 'history' && currentFeature !== 'profile') && (
         <div className="input-area">
           <form className="chat-form" onSubmit={handleSubmit}>
             <div className="input-wrapper">

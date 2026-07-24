@@ -197,6 +197,28 @@ async def get_history(username: str):
         logger.error(f"DynamoDB Query Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch history")
 
+@app.get("/api/profile/{username}")
+async def get_profile(username: str):
+    if not users_table:
+        return {"success": True, "profile": {"username": username, "created_at": "Unknown"}}
+        
+    try:
+        response = users_table.get_item(Key={'username': username})
+        if 'Item' not in response:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        user = response['Item']
+        return {
+            "success": True, 
+            "profile": {
+                "username": user.get('username'),
+                "created_at": user.get('created_at')
+            }
+        }
+    except ClientError as e:
+        logger.error(f"DynamoDB Error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
 # Mount frontend static files last so API routes take precedence
 frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
 if os.path.exists(frontend_path):
