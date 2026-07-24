@@ -10,6 +10,7 @@ import boto3
 from botocore.exceptions import ClientError
 from openai import OpenAI
 from dotenv import load_dotenv
+from passlib.context import CryptContext
 
 # Load environment variables
 load_dotenv()
@@ -49,9 +50,13 @@ else:
 try:
     dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION)
     table = dynamodb.Table('ChatHistory')
+    users_table = dynamodb.Table('Users')
 except Exception as e:
     logger.error(f"Failed to initialize DynamoDB: {e}")
     table = None
+    users_table = None
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Request Model
 class ChatRequest(BaseModel):
@@ -69,20 +74,51 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+@app.post("/api/register")
+async def register_endpoint(req: LoginRequest):
+    if not users_table:
+        raise HTTPException(status_code=500, detail="Database not configured")
+        
+    try:
+        response = users_table.get_item(Key={'username': req.username})
+        if 'Item' in response:
+            raise HTTPException(status_code=400, detail="Username already exists")
+            
+        hashed_password = pwd_context.hash(req.password)
+        users_table.put_item(
+            Item={
+                'username': req.username,
+                'password_hash': hashed_password,
+                'created_at': datetime.utcnow().isoformat()
+            }
+        )
+        return {"success": True}
+    except ClientError as e:
+        logger.error(f"DynamoDB Error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
+
 @app.post("/api/login")
 async def login_endpoint(req: LoginRequest):
-    expected_username = os.getenv("APP_USERNAME")
-    expected_password = os.getenv("APP_PASSWORD")
-    
-    if not expected_username or not expected_password:
-        # For local testing if env is not set, fallback to a default or block
-        expected_username = expected_username or "admin"
-        expected_password = expected_password or "password"
+    if not users_table:
+        expected_username = os.getenv("APP_USERNAME") or "admin"
+        expected_password = os.getenv("APP_PASSWORD") or "password"
+        if req.username == expected_username and req.password == expected_password:
+            return {"success": True}
+        raise HTTPException(status_code=401, detail="Database unavailable and env invalid")
         
-    if req.username == expected_username and req.password == expected_password:
-        return {"success": True}
-    else:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+    try:
+        response = users_table.get_item(Key={'username': req.username})
+        if 'Item' not in response:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+            
+        user = response['Item']
+        if pwd_context.verify(req.password, user['password_hash']):
+            return {"success": True}
+        else:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+    except ClientError as e:
+        logger.error(f"DynamoDB Error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
 
 def get_system_prompt(feature_type: str) -> str:
     base_prompt = "You are a professional and encouraging AI Career Assistant. Your goal is to help students, fresh graduates, and job seekers. "

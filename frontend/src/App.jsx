@@ -92,28 +92,36 @@ const RippleButton = ({ children, isActive, onClick }) => {
 
 // Login Window Component
 const LoginWindow = ({ onLoginSuccess }) => {
+  const [isSignUp, setIsSignUp] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     
+    const endpoint = isSignUp ? '/api/register' : '/api/login';
+    
     try {
-      const response = await fetch('/api/login', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
       });
       
       if (response.ok) {
-        onLoginSuccess(username);
+        if (isSignUp) {
+          // If signup was successful, you can auto-login or switch to login mode. Let's auto-login.
+          onLoginSuccess(username);
+        } else {
+          onLoginSuccess(username);
+        }
       } else {
         const data = await response.json();
-        setError(data.detail || 'Login failed');
+        setError(data.detail || (isSignUp ? 'Registration failed' : 'Login failed'));
       }
     } catch (err) {
       setError('Failed to connect to server');
@@ -128,9 +136,9 @@ const LoginWindow = ({ onLoginSuccess }) => {
         <div className="login-header">
           <i className="ph ph-briefcase"></i>
           <h2><ScrambleText text="Career Guide AI" /></h2>
-          <p>Please log in to continue</p>
+          <p>{isSignUp ? "Create a new account" : "Please log in to continue"}</p>
         </div>
-        <form onSubmit={handleLogin} className="login-form">
+        <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
             <label>Username</label>
             <input 
@@ -151,9 +159,19 @@ const LoginWindow = ({ onLoginSuccess }) => {
           </div>
           {error && <div className="login-error">{error}</div>}
           <button type="submit" disabled={loading} className="login-submit-btn">
-            {loading ? 'Authenticating...' : 'Log In'}
+            {loading ? (isSignUp ? 'Creating Account...' : 'Authenticating...') : (isSignUp ? 'Sign Up' : 'Log In')}
           </button>
         </form>
+        <div style={{textAlign: 'center', marginTop: '16px', fontSize: '0.9rem', color: 'var(--text-muted)'}}>
+          {isSignUp ? "Already have an account? " : "Don't have an account? "}
+          <button 
+            type="button"
+            onClick={() => { setIsSignUp(!isSignUp); setError(''); }}
+            style={{background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontWeight: 'bold'}}
+          >
+            {isSignUp ? "Log In" : "Sign Up"}
+          </button>
+        </div>
       </div>
     </div>
   );
