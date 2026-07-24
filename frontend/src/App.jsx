@@ -182,21 +182,16 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loggedInUser, setLoggedInUser] = useState('');
 
-  const [sessionId] = useState(() => {
-    let id = localStorage.getItem('career_ai_session');
-    if (!id) {
-      id = generateSessionId();
-      localStorage.setItem('career_ai_session', id);
-    }
-    return id;
-  });
-
   const [currentFeature, setCurrentFeature] = useState('career_advice');
   const [messages, setMessages] = useState([
     { type: 'system', content: featureContent['career_advice'].welcome }
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [expandedHistory, setExpandedHistory] = useState({});
+  
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -208,12 +203,41 @@ function App() {
     scrollToBottom();
   }, [messages, isLoading]);
 
+  useEffect(() => {
+    if (currentFeature === 'history' && loggedInUser) {
+      const fetchHistory = async () => {
+        setLoadingHistory(true);
+        try {
+          const res = await fetch(`/api/history/${loggedInUser}`);
+          const data = await res.json();
+          if (data.success) {
+            setHistoryItems(data.history);
+          }
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setLoadingHistory(false);
+        }
+      };
+      fetchHistory();
+    }
+  }, [currentFeature, loggedInUser]);
+
   const handleFeatureSwitch = (featureKey) => {
     if (currentFeature === featureKey) return;
     setCurrentFeature(featureKey);
-    setMessages([
-      { type: 'system', content: featureContent[featureKey].welcome }
-    ]);
+    if (featureKey !== 'history') {
+      setMessages([
+        { type: 'system', content: featureContent[featureKey].welcome }
+      ]);
+    }
+  };
+
+  const toggleHistoryItem = (timestamp) => {
+    setExpandedHistory(prev => ({
+      ...prev,
+      [timestamp]: !prev[timestamp]
+    }));
   };
 
   const formatResponse = (text) => {
@@ -261,7 +285,7 @@ function App() {
         body: JSON.stringify({
           message: msg,
           feature_type: currentFeature,
-          session_id: sessionId
+          username: loggedInUser
         })
       });
 
@@ -279,7 +303,7 @@ function App() {
     }
   };
 
-  const current = featureContent[currentFeature];
+  const current = currentFeature !== 'history' ? featureContent[currentFeature] : null;
 
   if (!isAuthenticated) {
     return (
@@ -313,6 +337,14 @@ function App() {
               <span className="btn-text"><ScrambleText text={item.title} /></span>
             </RippleButton>
           ))}
+          <div className="history-nav-divider"></div>
+          <RippleButton 
+            isActive={currentFeature === 'history'}
+            onClick={() => handleFeatureSwitch('history')}
+          >
+            <i className="ph ph-clock-counter-clockwise"></i>
+            <span className="btn-text"><ScrambleText text="Chat History" /></span>
+          </RippleButton>
         </nav>
 
         <div className="user-info">
@@ -329,35 +361,80 @@ function App() {
       {/* Main Chat Area */}
       <main className="chat-area">
         <header className="chat-header">
-          <div>
-            <h2><ScrambleText text={current.title} /></h2>
-            {/* ScrambleText removed from subtitle to keep it readable for long text */}
-            <p>{current.desc}</p>
-          </div>
+          {currentFeature === 'history' ? (
+            <div>
+              <h2><ScrambleText text="Your Chat History" /></h2>
+              <p>Review all your past career sessions.</p>
+            </div>
+          ) : (
+            <div>
+              <h2><ScrambleText text={current.title} /></h2>
+              <p>{current.desc}</p>
+            </div>
+          )}
         </header>
 
         <div className="messages-container" id="chat-messages">
-          {messages.map((msg, idx) => (
-            <MessageBubble key={idx} msg={msg} formatResponse={formatResponse} />
-          ))}
-
-          {isLoading && (
-            <div className="message system-message slide-up-reveal" id="typing-indicator">
-              <div className="message-avatar">
-                <i className="ph-fill ph-robot"></i>
-              </div>
-              <div className="message-content">
-                <div className="typing-indicator">
-                  <div className="typing-dot"></div>
-                  <div className="typing-dot"></div>
-                  <div className="typing-dot"></div>
-                </div>
-              </div>
+          {currentFeature === 'history' ? (
+            <div className="history-view">
+              {loadingHistory ? (
+                <div className="history-empty">Loading history...</div>
+              ) : historyItems.length === 0 ? (
+                <div className="history-empty">No chat history found. Start chatting!</div>
+              ) : (
+                historyItems.map((item, idx) => {
+                  const isExpanded = expandedHistory[item.timestamp];
+                  return (
+                  <div key={idx} className="history-card slide-up-reveal" onClick={() => toggleHistoryItem(item.timestamp)} style={{ cursor: 'pointer', transition: 'all 0.2s ease' }}>
+                    <div className="history-card-header">
+                      <span><i className="ph ph-clock"></i> {new Date(item.timestamp).toLocaleString()}</span>
+                      <div>
+                        <span className="history-tag" style={{ marginRight: '10px' }}>{item.feature_type.replace('_', ' ').toUpperCase()}</span>
+                        <i className={isExpanded ? "ph ph-caret-up" : "ph ph-caret-down"} style={{ fontSize: '1.2rem', verticalAlign: 'middle' }}></i>
+                      </div>
+                    </div>
+                    <div className="history-card-body">
+                      <div className="history-user-msg" style={{ fontWeight: isExpanded ? 'bold' : 'normal' }}>
+                        <i className="ph ph-user"></i> {item.user_message}
+                      </div>
+                      {isExpanded && (
+                        <div className="history-ai-msg" style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px' }}>
+                          <i className="ph-fill ph-robot"></i> 
+                          <div dangerouslySetInnerHTML={formatResponse(item.ai_response)} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  );
+                })
+              )}
             </div>
+          ) : (
+            <>
+              {messages.map((msg, idx) => (
+                <MessageBubble key={idx} msg={msg} formatResponse={formatResponse} />
+              ))}
+
+              {isLoading && (
+                <div className="message system-message slide-up-reveal" id="typing-indicator">
+                  <div className="message-avatar">
+                    <i className="ph-fill ph-robot"></i>
+                  </div>
+                  <div className="message-content">
+                    <div className="typing-indicator">
+                      <div className="typing-dot"></div>
+                      <div className="typing-dot"></div>
+                      <div className="typing-dot"></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </>
           )}
-          <div ref={messagesEndRef} />
         </div>
 
+        {currentFeature !== 'history' && (
         <div className="input-area">
           <form className="chat-form" onSubmit={handleSubmit}>
             <div className="input-wrapper">
@@ -377,6 +454,7 @@ function App() {
             <div className="footer-note">AI responses can be inaccurate. Always verify critical career decisions.</div>
           </form>
         </div>
+        )}
       </main>
     </div>
   );

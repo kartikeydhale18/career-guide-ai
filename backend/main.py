@@ -11,6 +11,7 @@ from botocore.exceptions import ClientError
 from openai import OpenAI
 from dotenv import load_dotenv
 from passlib.context import CryptContext
+from boto3.dynamodb.conditions import Key
 
 # Load environment variables
 load_dotenv()
@@ -62,7 +63,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class ChatRequest(BaseModel):
     message: str
     feature_type: str = "career_advice" # career_advice, resume_tip, interview_question
-    session_id: str
+    username: str
 
 # Response Model
 class ChatResponse(BaseModel):
@@ -164,7 +165,7 @@ async def chat_endpoint(req: ChatRequest):
         try:
             table.put_item(
                 Item={
-                    'session_id': req.session_id,
+                    'username': req.username,
                     'timestamp': timestamp,
                     'user_message': req.message,
                     'ai_response': ai_text,
@@ -180,6 +181,21 @@ async def chat_endpoint(req: ChatRequest):
          logger.warning("DynamoDB table not configured. Skipping persistence.")
 
     return ChatResponse(response=ai_text, status="success")
+
+@app.get("/api/history/{username}")
+async def get_history(username: str):
+    if not table:
+        raise HTTPException(status_code=500, detail="Database not configured")
+        
+    try:
+        response = table.query(
+            KeyConditionExpression=Key('username').eq(username),
+            ScanIndexForward=True
+        )
+        return {"success": True, "history": response.get('Items', [])}
+    except ClientError as e:
+        logger.error(f"DynamoDB Query Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch history")
 
 # Mount frontend static files last so API routes take precedence
 frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
